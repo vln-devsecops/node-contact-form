@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react';
-import { useRecaptcha } from './useRecaptcha';
+import { useRecaptcha } from './useRecaptcha.js';
 
 export interface ContactFormValues {
   name: string;
