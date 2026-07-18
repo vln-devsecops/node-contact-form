@@ -13,7 +13,7 @@ consumed as a **published, versioned npm dependency** at `terraform apply` time 
 
 | Repo | Role |
 | --- | --- |
-| `terraform-modules` | `modules/aws/contact_form` (not yet built) — the self-provisioning module. All AWS infrastructure. |
+| `terraform-modules` | `modules/aws/contact_form` — the self-provisioning module. All AWS infrastructure. |
 | `node-contact-form` | This repo. The application code the module deploys: the two Lambda handlers, and a reusable React form component. |
 
 ## Runtime shape
@@ -40,24 +40,62 @@ the spam box or just the legitimate queue.
 
 ## Build and release
 
-The Lambda source is a versioned deliverable, not vendored source — see
-`packages/lambda-src/`:
+Both packages are versioned deliverables, not vendored source:
 
 ```
 node-contact-form/packages/lambda-src
    └─ esbuild → one self-contained CJS bundle per handler (submit/handler.js, admin/handler.js)
    └─ published to GitHub Packages as @vln-devsecops/contact-form-lambda
 
-terraform-modules/modules/aws/contact_form/lambda-build/package.json  (not yet built)
+terraform-modules/modules/aws/contact_form/lambda-build/package.json
    └─ depends on @vln-devsecops/contact-form-lambda        (bumped by Dependabot)
    └─ at apply time: null_resource runs `npm install`,
       archive_file zips node_modules/.../dist
+
+node-contact-form/packages/ui-contact-form
+   └─ tsc -b → ESM + type declarations (dist/index.js, dist/index.d.ts)
+   └─ published to GitHub Packages as @vln-devsecops/contact-form-ui
 ```
+
+`ui-contact-form` is deliberately published (unlike `node-vlinder-auth`'s equivalent `ui-auth`
+package, which is `private: true` with no publish workflow — that package's only consumer lives in
+the same repo, so it's never needed to leave it). This package's whole purpose is being usable from
+a *different* repo (e.g. `vlinder.ca`), so it follows `lambda-src`'s publish pattern instead:
+auto-versioned `1.0.<run_number>`, published on every push to `main` that touches
+`packages/ui-contact-form/**` (`cd_publish_ui.yml`).
+
+## `@vln-devsecops/contact-form-ui`
+
+A single unstyled, controlled `<ContactForm>` component plus a `useRecaptcha` hook. It only
+collects and validates input and acquires a reCAPTCHA v3 token — it makes no assumption about how
+or where the values are submitted:
+
+```tsx
+import { ContactForm } from '@vln-devsecops/contact-form-ui';
+
+<ContactForm
+  recaptchaSiteKey={RECAPTCHA_SITE_KEY}
+  onSubmit={async (values, recaptchaToken) => {
+    await fetch(SUBMIT_FUNCTION_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-recaptcha-token': recaptchaToken ?? '' },
+      body: JSON.stringify(values),
+    });
+  }}
+/>
+```
+
+A failed or blocked reCAPTCHA load (ad blocker, network hiccup) resolves `recaptchaToken` as
+`undefined` rather than blocking the submit — matching the backend's spam-box design (a missing
+token is stored for review, not rejected). Styling is left entirely to the consumer: fields are
+plain `<input>`/`<textarea>` with stable `id`s and an optional `className` on the `<form>`.
 
 ## Status
 
-- `packages/lambda-src` — built, tested, not yet published (no CI run yet on `main`).
-- `packages/ui-contact-form` (reusable React component) — not yet started.
-- `terraform-modules/modules/aws/contact_form` — not yet started.
-- vlinder.ca's own `infra/fn_contactform.tf` and `ContactForm.tsx` will consume this once both of
-  the above land.
+- `packages/lambda-src` — built, tested, published to GitHub Packages
+  (`@vln-devsecops/contact-form-lambda`), CI green on `main`.
+- `packages/ui-contact-form` (reusable React component) — built, tested (100% coverage), published
+  to GitHub Packages (`@vln-devsecops/contact-form-ui`).
+- `terraform-modules/modules/aws/contact_form` — built and merged.
+- vlinder.ca's own `infra/fn_contactform.tf` and `ContactForm.tsx` — not yet started. Both upstream
+  packages now exist, so this is the only remaining piece.
