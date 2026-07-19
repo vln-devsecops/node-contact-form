@@ -47,6 +47,43 @@ describe('useRecaptcha', () => {
     await expect(promise).resolves.toBeUndefined();
   });
 
+  it('does not hang when grecaptcha.execute throws synchronously (e.g. an invalid/missing site key)', async () => {
+    // Reproduces a real bug found live: the actual Google script throws
+    // synchronously ("Invalid reCAPTCHA client id") rather than rejecting
+    // a promise when called with a bad site key, and its ready() callback
+    // fires asynchronously (setTimeout, not synchronously like the other
+    // tests' mocks) - so the throw lands outside new Promise(...)'s own
+    // synchronous scope. Left unguarded, this left execute()'s promise
+    // permanently unsettled, silently hanging the entire submit flow with
+    // no error and no network request.
+    const execute = vi.fn(() => {
+      throw new Error('Invalid reCAPTCHA client id: ');
+    });
+    window.grecaptcha = {
+      ready: (cb) => {
+        setTimeout(cb, 0);
+      },
+      execute,
+    };
+
+    const { result } = renderHook(() => useRecaptcha('site-key'));
+    await expect(result.current.execute('submit')).resolves.toBeUndefined();
+  });
+
+  it('does not hang when grecaptcha.execute throws a non-Error value synchronously', async () => {
+    window.grecaptcha = {
+      ready: (cb) => {
+        setTimeout(cb, 0);
+      },
+      execute: vi.fn(() => {
+        throw 'not an Error instance';
+      }),
+    };
+
+    const { result } = renderHook(() => useRecaptcha('site-key'));
+    await expect(result.current.execute('submit')).resolves.toBeUndefined();
+  });
+
   it('reuses one script element across concurrent execute calls', async () => {
     const { result } = renderHook(() => useRecaptcha('site-key'));
     const first = result.current.execute('submit');

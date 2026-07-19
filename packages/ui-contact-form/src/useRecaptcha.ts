@@ -59,7 +59,21 @@ export function useRecaptcha(siteKey: string): UseRecaptchaResult {
             return;
           }
           grecaptcha.ready(() => {
-            grecaptcha.execute(siteKey, { action }).then(resolve, reject);
+            // grecaptcha.execute can throw *synchronously* (not just return
+            // a rejected promise) when the site key is missing/invalid -
+            // e.g. "Invalid reCAPTCHA client id" - confirmed against the
+            // real Google script, not just assumed. That throw happens
+            // inside this async ready() callback, outside the executor's
+            // own synchronous scope, so it is NOT automatically converted
+            // to a promise rejection the way a throw directly inside `new
+            // Promise(...)` would be - left unguarded, it becomes an
+            // uncaught exception and this promise never settles at all,
+            // silently hanging the caller's submit flow forever.
+            try {
+              grecaptcha.execute(siteKey, { action }).then(resolve, reject);
+            } catch (err) {
+              reject(err instanceof Error ? err : new Error(String(err)));
+            }
           });
         });
       } catch {
